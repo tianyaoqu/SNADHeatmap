@@ -1,0 +1,452 @@
+****Project: social environments and cognitive health
+****Data: stacked data of SNACK Wave 1 &2 and SNAD Wave 1-3
+****Purpose: multiple corrections for inflated type 1 errors
+****Author:  Tianyao Qu
+****Date:    05/07/2025
+****Updated: 05/07/2025
+
+// reference: https://journals.sagepub.com/doi/pdf/10.1177/1536867X0300300202
+
+*-------------------------------
+* Setup
+*-------------------------------
+clear all
+set more off
+set matsize 4000
+global seed 4553
+graph set window fontface "Times New Roman"
+set scheme s1color
+
+*--------------------------------------------------
+* Loop over outcomes and predictors, DV1- language
+*--------------------------------------------------
+* Load stacked SNAD + SNACK data
+cd "C:\Users\windy\OneDrive - Indiana University\1_IU_Project\SNAD\4_Cog_Bri\correctiontest"
+set scheme s1color
+
+*--------------------------------------------------
+* Loop over outcomes and predictors, DV1- language 
+*--------------------------------------------------
+use "snack_snad_merged_std_0720.dta", clear
+
+sum std_language std_epmem std_moca_raw MCI_rev
+set matsize 11000
+
+
+local predictors `"married parenthood working livealone grphouse anyvolunteer std_church_day std_famfriends_day std_smcount  assisting_adult widowed anybrevement phassles std_friends std_family std_marriage std_frndsupp std_famsupp std_msupport3 std_communityscale std_pkin std_pclose std_padvice std_pprox std_mfreq std_ploan std_pchores std_bridging std_efctsize std_diverse std_density_rev std_density std_netsize std_avg_euc_age std_weakest std_occcomplex_people std_diff_college std_diff_white std_numphonecontact std_pfriend sole std_diff_race std_sdage std_pcollege std_pwhite"'
+
+
+
+
+
+* Store output in a temporary dataset
+tempname results1
+postfile `results1' str30 predictor double coef se pval using temp_std_language.dta, replace
+
+* Loop through predictors
+foreach x of local predictors {
+    display "-------------------------------------------------------------"
+    display "Running model: std_language ~ `x'"
+    
+    capture noisily meglm std_language c.std_ageall female white college std_faq gds_h i.dummysource `x' || surveyid:
+
+    if _rc == 0 {
+        matrix b = e(b)
+        matrix V = e(V)
+
+        local colnames : colnames b
+        local found = 0
+
+        forvalues j = 1/`=colsof(b)' {
+            local colname = word("`colnames'", `j')
+            display "Checking: `x' in colname[`j'] = `colname'"
+            if strpos("`colname'", "`x'") > 0 {
+                local row = `j'
+                local found = 1
+                continue, break
+            }
+        }
+
+        if `found' {
+            scalar coef = b[1, `row']
+            scalar se   = sqrt(V[`row', `row'])
+            scalar t    = coef / se
+            scalar df   = e(df_r)
+            scalar p    = 2*(normal(-abs(_b[`x']/_se[`x'])))
+			
+			
+            post `results1' ("`x'") (coef) (se) (p)
+            display "Posted: `x'  coef=`=coef'  se=`=se'  p=`=p'"
+        }
+        else {
+            display as error "Predictor `x' NOT FOUND in e(b)"
+        }
+    }
+    else {
+        display as error "Model failed for `x' (return code `_rc')"
+    }
+}
+
+postclose `results1'
+
+* Load results and inspect
+clear all
+use temp_std_language.dta, clear
+*list in 1/10
+
+* Smile plot * 
+// Benjamini–Hochberg (BH) False Discovery Rate (FDR)
+smileplot, pvalue(pval) estimate(coef) ptlabel(predictor) method(simes) ///
+    scatteropts(mlabpos(12) mlabsize(small) msymbol(circle) msize(small) ///
+                mcolor(blue)) ///
+    refopts(lpattern(shortdash) lcolor(gs10) lwidth(thin)) ///
+xtitle("Somers’ D ", size(small)) ///
+ytitle("Un/corrected P-values", size(small)) ylabel(,nogrid) ///
+graphregion(color(white) lstyle(none)) plotregion(color(white) lstyle(none)) ///
+title("Verbal Fluency", size(medium)) /// 
+saving (languagepvalue.gph, replace)
+*title("Smile Plot of Social Predictors") ///
+*subtitle("Adjusted p-values (Benjamini–Hochberg method)") ///
+*note("Markers labeled by predictor; dashed line indicates reference p=0.05")
+	
+graph export "smile_simes_language.png", as(png) replace
+graph close
+
+/*
+Method: hochberg
+Uncorrected overall critical P-value: .05
+Number of P-values: 41
+Corrected overall critical P-value: .00147059
+Number of rejected P-values: 8
+
+	
+smileplot,pvalue(pval) estimate(coef) ptlabel(predictor) method(hochberg) ///
+ scatteropts(mlabpos(12) mlabsize(small)) refopts(lpattern(shortdash))  ///
+          xtitle("Somers’ D ") ///
+ytitle("Uncorrected P-value") ylabel(,nogrid) ///
+xsize(4) ysize(2.392) 
+
+graph export "smile_holland_language.png", as(png) replace
+
+
+Method: holland
+Uncorrected overall critical P-value: .05
+Number of P-values: 41
+Corrected overall critical P-value: .00155313
+Number of rejected P-values: 8
+*/	
+	
+
+*--------------------------------------------------
+* Loop over outcomes and predictors, DV2- empisodic memory
+*--------------------------------------------------
+* Load stacked SNAD + SNACK data
+use "snack_snad_merged_std_0720.dta", clear
+
+
+sum std_language std_epmem std_moca_raw MCI_rev
+set matsize 11000
+
+local predictors `"married parenthood working livealone grphouse anyvolunteer std_church_day std_famfriends_day std_smcount  assisting_adult widowed anybrevement phassles std_friends std_family std_marriage std_frndsupp std_famsupp std_msupport3 std_communityscale std_pkin std_pclose std_padvice std_pprox std_mfreq std_ploan std_pchores std_bridging std_efctsize std_diverse std_density_rev std_density std_netsize std_avg_euc_age std_weakest std_occcomplex_people std_diff_college std_diff_white std_numphonecontact std_pfriend sole std_diff_race std_sdage std_pcollege std_pwhite"'
+
+* Store output in a temporary dataset
+tempname results2
+postfile `results2' str30 predictor double coef se pval using temp_std_epmem.dta, replace
+
+* Loop through predictors
+foreach x of local predictors {
+    display "-------------------------------------------------------------"
+    display "Running model: std_epmem ~ `x'"
+    
+    capture noisily meglm std_epmem c.std_ageall female white college std_faq gds_h i.dummysource `x' || surveyid:
+
+    if _rc == 0 {
+        matrix b = e(b)
+        matrix V = e(V)
+
+        local colnames : colnames b
+        local found = 0
+
+        forvalues j = 1/`=colsof(b)' {
+            local colname = word("`colnames'", `j')
+            display "Checking: `x' in colname[`j'] = `colname'"
+            if strpos("`colname'", "`x'") > 0 {
+                local row = `j'
+                local found = 1
+                continue, break
+            }
+        }
+
+        if `found' {
+            scalar coef = b[1, `row']
+            scalar se   = sqrt(V[`row', `row'])
+            scalar t    = coef / se
+            scalar df   = e(df_r)
+            scalar p    = 2*(normal(-abs(_b[`x']/_se[`x'])))
+			
+			
+            post `results2' ("`x'") (coef) (se) (p)
+            display "Posted: `x'  coef=`=coef'  se=`=se'  p=`=p'"
+        }
+        else {
+            display as error "Predictor `x' NOT FOUND in e(b)"
+        }
+    }
+    else {
+        display as error "Model failed for `x' (return code `_rc')"
+    }
+}
+
+postclose `results2'
+
+* Load results and inspect
+use temp_std_epmem.dta, clear
+*list in 1/10
+
+* Smile plot * 
+// Benjamini–Hochberg (BH) False Discovery Rate (FDR)
+smileplot, pvalue(pval) estimate(coef) ptlabel(predictor) method(simes) ///
+    scatteropts(mlabpos(12) mlabsize(small) msymbol(circle) msize(small) ///
+                mcolor(blue)) ///
+    refopts(lpattern(shortdash) lcolor(gs10) lwidth(thin)) ///
+xtitle("Somers’ D ", size(small)) ///
+ytitle("Un/corrected P-values", size(small)) ylabel(,nogrid) ///
+graphregion(color(white) lstyle(none)) plotregion(color(white) lstyle(none)) ///
+title("Episodic memory", size(medium)) /// 
+saving (epmempvalue.gph, replace)
+*subtitle("Adjusted p-values (Benjamini–Hochberg method)") ///
+*note("Markers labeled by predictor; dashed line indicates reference p=0.05")
+	
+graph export "smile_simes_epmem.png", as(png) replace
+graph close
+
+
+/*
+Method: hochberg
+Uncorrected overall critical P-value: .05
+Number of P-values: 41
+Corrected overall critical P-value: .00138889
+Number of rejected P-values: 6
+
+	
+Method: holland
+Uncorrected overall critical P-value: .05
+Number of P-values: 41
+Corrected overall critical P-value: .00146445
+Number of rejected P-values: 6
+*/	
+
+
+
+*--------------------------------------------------
+* Loop over outcomes and predictors, DV3- MoCA score
+*--------------------------------------------------
+* Load stacked SNAD + SNACK data
+use "snack_snad_merged_std_0720.dta", clear
+
+sum std_language std_epmem std_moca_raw MCI_rev
+set matsize 11000
+
+local predictors `"married parenthood working livealone grphouse anyvolunteer std_church_day std_famfriends_day std_smcount  assisting_adult widowed anybrevement phassles std_friends std_family std_marriage std_frndsupp std_famsupp std_msupport3 std_communityscale std_pkin std_pclose std_padvice std_pprox std_mfreq std_ploan std_pchores std_bridging std_efctsize std_diverse std_density_rev std_density std_netsize std_avg_euc_age std_weakest std_occcomplex_people std_diff_college std_diff_white std_numphonecontact std_pfriend sole std_diff_race std_sdage std_pcollege std_pwhite "'
+
+* Store output in a temporary dataset
+tempname results3
+postfile `results3' str30 predictor double coef se pval using temp_std_moca_raw.dta, replace
+
+* Loop through predictors
+foreach x of local predictors {
+    display "-------------------------------------------------------------"
+    display "Running model: std_moca_raw ~ `x'"
+    
+    capture noisily meglm std_moca_raw c.std_ageall female white college std_faq gds_h i.dummysource `x' || surveyid:
+
+    if _rc == 0 {
+        matrix b = e(b)
+        matrix V = e(V)
+
+        local colnames : colnames b
+        local found = 0
+
+        forvalues j = 1/`=colsof(b)' {
+            local colname = word("`colnames'", `j')
+            display "Checking: `x' in colname[`j'] = `colname'"
+            if strpos("`colname'", "`x'") > 0 {
+                local row = `j'
+                local found = 1
+                continue, break
+            }
+        }
+
+        if `found' {
+            scalar coef = b[1, `row']
+            scalar se   = sqrt(V[`row', `row'])
+            scalar t    = coef / se
+            scalar df   = e(df_r)
+            scalar p    = 2*(normal(-abs(_b[`x']/_se[`x'])))
+			
+			
+            post `results3' ("`x'") (coef) (se) (p)
+            display "Posted: `x'  coef=`=coef'  se=`=se'  p=`=p'"
+        }
+        else {
+            display as error "Predictor `x' NOT FOUND in e(b)"
+        }
+    }
+    else {
+        display as error "Model failed for `x' (return code `_rc')"
+    }
+}
+
+postclose `results3'
+
+* Load results and inspect
+use temp_std_moca_raw.dta, clear
+*list in 1/10
+
+* Smile plot * 
+// Benjamini–Hochberg (BH) False Discovery Rate (FDR)
+smileplot, pvalue(pval) estimate(coef) ptlabel(predictor) method(simes) ///
+    scatteropts(mlabpos(12) mlabsize(small) msymbol(circle) msize(small) ///
+                mcolor(blue)) ///
+    refopts(lpattern(shortdash) lcolor(gs10) lwidth(thin)) ///
+xtitle("Somers’ D ", size(small)) ///
+ytitle("Un/corrected P-values", size(small)) ylabel(,nogrid) ///
+graphregion(color(white) lstyle(none)) plotregion(color(white) lstyle(none)) ///
+title("MoCA", size(medium)) /// 
+saving (mocavalue.gph, replace)
+*subtitle("Adjusted p-values (Benjamini–Hochberg method)") ///
+*note("Markers labeled by predictor; dashed line indicates reference p=0.05")
+
+graph export "smile_simes_moca.png", as(png) replace
+graph close
+
+/*
+Method: hochberg
+Uncorrected overall critical P-value: .05
+Number of P-values: 41
+Corrected overall critical P-value: .00135135
+Number of rejected P-values: 5
+
+	
+Method: holland
+Uncorrected overall critical P-value: .05
+Number of P-values: 41
+Corrected overall critical P-value: .0014238
+Number of rejected P-values: 5
+*/	
+
+
+
+*--------------------------------------------------
+* Loop over outcomes and predictors, DV4- MCI——rev
+*--------------------------------------------------
+* Load stacked SNAD + SNACK data
+use "snack_snad_merged_std_0720.dta", clear
+
+
+sum std_language std_epmem std_moca_raw MCI_rev
+set matsize 11000
+
+local predictors `"married parenthood working livealone grphouse anyvolunteer std_church_day std_famfriends_day std_smcount  assisting_adult widowed anybrevement phassles std_friends std_family std_marriage std_frndsupp std_famsupp std_msupport3 std_communityscale std_pkin std_pclose std_padvice std_pprox std_mfreq std_ploan std_pchores std_bridging std_efctsize std_diverse std_density_rev std_density std_netsize std_avg_euc_age std_weakest std_occcomplex_people std_diff_college std_diff_white std_numphonecontact std_pfriend sole std_diff_race std_sdage std_pcollege std_pwhite "'
+
+* Store output in a temporary dataset
+tempname results4
+postfile `results4' str30 predictor double coef se pval using temp_MCI_rev.dta, replace
+
+* Loop through predictors
+foreach x of local predictors {
+    display "-------------------------------------------------------------"
+    display "Running model: MCI_rev ~ `x'"
+    
+    capture noisily meglm MCI_rev c.std_ageall female white college std_faq gds_h i.dummysource `x' || surveyid:
+
+    if _rc == 0 {
+        matrix b = e(b)
+        matrix V = e(V)
+
+        local colnames : colnames b
+        local found = 0
+
+        forvalues j = 1/`=colsof(b)' {
+            local colname = word("`colnames'", `j')
+            display "Checking: `x' in colname[`j'] = `colname'"
+            if strpos("`colname'", "`x'") > 0 {
+                local row = `j'
+                local found = 1
+                continue, break
+            }
+        }
+
+        if `found' {
+            scalar coef = b[1, `row']
+            scalar se   = sqrt(V[`row', `row'])
+            scalar t    = coef / se
+            scalar df   = e(df_r)
+            scalar p    = 2*(normal(-abs(_b[`x']/_se[`x'])))
+			
+			
+            post `results4' ("`x'") (coef) (se) (p)
+            display "Posted: `x'  coef=`=coef'  se=`=se'  p=`=p'"
+        }
+        else {
+            display as error "Predictor `x' NOT FOUND in e(b)"
+        }
+    }
+    else {
+        display as error "Model failed for `x' (return code `_rc')"
+    }
+}
+
+postclose `results4'
+
+* Load results and inspect
+use temp_MCI_rev.dta, clear
+*list in 1/10
+
+* Smile plot * 
+// Benjamini–Hochberg (BH) False Discovery Rate (FDR)
+smileplot, pvalue(pval) estimate(coef) ptlabel(predictor) method(simes) ///
+    scatteropts(mlabpos(12) mlabsize(small) msymbol(circle) msize(small) ///
+                mcolor(blue)) ///
+    refopts(lpattern(shortdash) lcolor(gs10) lwidth(thin)) ///
+xtitle("Somers’ D ", size(small)) ///
+ytitle("Un/corrected P-values", size(small)) ylabel(,nogrid) ///
+graphregion(color(white) lstyle(none)) plotregion(color(white) lstyle(none)) ///
+title("MCI vs. Normal", size(medium)) /// 
+saving (mcirev.gph, replace)
+*subtitle("Adjusted p-values (Benjamini–Hochberg method)") ///
+*note("Markers labeled by predictor; dashed line indicates reference p=0.05")
+	
+graph export "smile_simes_mcirev.png", as(png) replace
+graph close
+
+/*
+Method: hochberg
+Uncorrected overall critical P-value: .05
+Number of P-values: 41
+Corrected overall critical P-value: .00138889
+Number of rejected P-values: 6
+
+Method: holland
+Uncorrected overall critical P-value: .05
+Number of P-values: 41
+Corrected overall critical P-value: .00146445
+Number of rejected P-values: 6
+
+*/	
+
+*** combine four graphs ***
+	graph combine languagepvalue.gph epmempvalue.gph mocavalue.gph mcirev.gph, ///
+    ycommon xcommon  commonscheme ///
+    col(2) imargin(1 1 1 1) ///
+	iscale(0.8) xsize(12) ysize(8) ///
+	graphregion(color(white) lstyle(none)) ///
+	plotregion(color(white) lstyle(none)) ///
+    title("P-values Across Cognitive Outcomes", size(small)) ///
+    note("FDR=Benjamini–Hochberg (BH) False Discovery Rate", size(small))
+	
+graph export combined_pvalues2.png, replace as(png) name("Graph") 
+graph close	
+
+
+
