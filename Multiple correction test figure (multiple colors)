@@ -1,0 +1,542 @@
+****Project: social environments and cognitive health
+****Data: stacked data of SNACK Wave 1 &2 and SNAD Wave 1-3
+****Purpose: multiple corrections for inflated type 1 errors
+****Author:  Tianyao Qu
+****Date:    05/07/2025
+****Updated: 05/07/2025
+
+// reference: https://journals.sagepub.com/doi/pdf/10.1177/1536867X0300300202
+
+*-------------------------------
+* Setup
+*-------------------------------
+clear all
+set more off
+set matsize 4000
+global seed 4553
+graph set window fontface "Times New Roman"
+set scheme s1color
+*--------------------------------------------------
+* Loop over outcomes and predictors, DV1- language
+*--------------------------------------------------
+* Load stacked SNAD + SNACK data
+cd "C:\Users\windy\OneDrive - Indiana University\1_IU_Project\SNAD\4_Cog_Bri\correctiontest"
+ 
+
+*--------------------------------------------------
+* Loop over outcomes and predictors, DV1- language 
+*--------------------------------------------------
+use "snack_snad_merged_std_0720.dta", clear
+
+sum std_language std_epmem std_moca_raw MCI_rev
+set matsize 11000
+
+
+sum married parenthood working livealone grphouse anyvolunteer std_church_day std_famfriends_day std_smcount
+sum assisting_adult widowed anybrevement phassles
+sum std_friends std_family std_marriage std_frndsupp std_famsupp std_msupport3 std_communityscale std_pkin std_pclose std_padvice std_pprox std_mfreq std_ploan std_pchores
+sum std_bridging std_efctsize std_diverse std_density std_netsize std_avg_euc_age std_weakest std_occcomplex_people std_diff_college std_diff_white std_numphonecontact std_pfriend sole  std_sdage std_pcollege std_pwhite
+
+local predictors `"married parenthood working livealone grphouse anyvolunteer std_church_day std_famfriends_day std_smcount  assisting_adult widowed anybrevement phassles std_friends std_family std_marriage std_frndsupp std_famsupp std_msupport3 std_communityscale std_pkin std_pclose std_padvice std_pprox std_mfreq std_ploan std_pchores std_bridging std_efctsize std_diverse std_density std_netsize std_avg_euc_age std_weakest std_occcomplex_people std_diff_college std_diff_white std_numphonecontact std_pfriend sole std_sdage std_pcollege std_pwhite"'
+
+
+* Store output in a temporary dataset
+tempname results1
+postfile `results1' str30 predictor double coef se pval using temp_std_language.dta, replace
+
+* Loop through predictors
+foreach x of local predictors {
+    display "-------------------------------------------------------------"
+    display "Running model: std_language ~ `x'"
+    
+    capture noisily meglm std_language c.std_ageall female white college std_faq gds_h i.dummysource `x' || surveyid:
+
+    if _rc == 0 {
+        matrix b = e(b)
+        matrix V = e(V)
+
+        local colnames : colnames b
+        local found = 0
+
+        forvalues j = 1/`=colsof(b)' {
+            local colname = word("`colnames'", `j')
+            display "Checking: `x' in colname[`j'] = `colname'"
+            if strpos("`colname'", "`x'") > 0 {
+                local row = `j'
+                local found = 1
+                continue, break
+            }
+        }
+
+        if `found' {
+            scalar coef = b[1, `row']
+            scalar se   = sqrt(V[`row', `row'])
+            scalar t    = coef / se
+            scalar df   = e(df_r)
+            scalar p    = 2*(normal(-abs(_b[`x']/_se[`x'])))
+			
+			
+            post `results1' ("`x'") (coef) (se) (p)
+            display "Posted: `x'  coef=`=coef'  se=`=se'  p=`=p'"
+        }
+        else {
+            display as error "Predictor `x' NOT FOUND in e(b)"
+        }
+    }
+    else {
+        display as error "Model failed for `x' (return code `_rc')"
+    }
+}
+
+postclose `results1'
+
+* Load results and inspect
+use temp_std_language.dta, clear
+*list in 1/10
+
+gen group = .
+local g1 "married parenthood working livealone grphouse anyvolunteer std_church_day std_famfriends_day std_smcount"
+local g2 "assisting_adult widowed anybrevement phassles"
+local g3 "std_friends std_family std_marriage std_frndsupp std_famsupp std_msupport3 std_communityscale std_pkin std_pclose std_padvice std_pprox std_mfreq std_ploan std_pchores"
+local g4 "std_bridging std_efctsize std_diverse std_density std_netsize std_avg_euc_age std_weakest std_occcomplex_people std_diff_college std_diff_white std_numphonecontact std_pfriend sole std_sdage std_pcollege std_pwhite"
+
+foreach var of local g1 {
+    replace group = 1 if predictor == "`var'"
+}
+foreach var of local g2 {
+    replace group = 2 if predictor == "`var'"
+}
+foreach var of local g3 {
+    replace group = 3 if predictor == "`var'"
+}
+foreach var of local g4 {
+    replace group = 4 if predictor == "`var'"
+}
+
+
+label define group 1 "Participation" 2 "Stressors" 3 "Bonding" 4 "Bridging"
+label values group group
+summ coef
+local xmax = r(max)
+
+twoway ///
+    (scatter pval coef if group==1, mcolor(blue) msymbol(X) msize(large) mlabel(predictor) mlabcolor(blue)) ///
+    (scatter pval coef if group==2, mcolor(magenta) msymbol(triangle) msize(small)  mlabel(predictor) mlabcolor(magenta)) ///
+    (scatter pval coef if group==3, mcolor(stc3) msymbol(square) msize(small)  mlabel(predictor) mlabcolor(stc3)) ///
+    (scatter pval coef if group==4, mcolor(orange) msymbol(circle) msize(small)  mlabel(predictor) mlabcolor(orange)), ///
+     xtitle("Somers' D ", size(small))   ///
+     ytitle("")  ///
+	 ///ytitle("P-values", size(medium))  ///
+     yscale(log reverse) ///
+     ylabel(1 0.1 0.01 0.001 0.0001, angle(0) nogrid notick) ///
+	 yline(0.05, lcolor(gs10) lpattern(shortdash)) ///
+     yline(0.0081395, lcolor(gs10) lpattern(shortdash)) ///
+     xline(0, lcolor(gs10) lpattern(shortdash)) ///
+	 xlabel(-0.3(0.1)0.3, angle(0) nogrid notick) /// 
+	 text(0.06 `=`xmax'+0.2' "p = 0.05", size(small) color(gs3) placement(east)) ///
+     text(0.009 `=`xmax'+0.2' "FDR p = 0.0081395", size(small) color(gs3) placement(east)) ///
+     xsize(5.5)   ///
+     plotregion(margin(0 30 2 8)) ///  
+	 graphregion(color(white) lstyle(none)) ///
+	 plotregion(color(white) lstyle(none)) ///
+     title("Verbal Fluency", size(small))  /// 
+     legend(off)   ///
+	 ///legend(order(1 "Participation" 2 "Stressors" 3 "Bonding" 4 "Bridging") row(1) size(small)) ///
+	 name(sp_language, replace)  ///
+	 scheme(s1color)
+	 
+graph save "sp_language.gph", replace
+graph export "sp_language_scatterplot.png", as(png) name("sp_language") replace
+	 
+	 
+
+*--------------------------------------------------
+* Loop over outcomes and predictors, DV2- empisodic memory
+*--------------------------------------------------
+* Load stacked SNAD + SNACK data
+use "snack_snad_merged_std_0720.dta", clear
+
+
+sum std_language std_epmem std_moca_raw MCI_rev
+set matsize 11000
+
+local predictors `"married parenthood working livealone grphouse anyvolunteer std_church_day std_famfriends_day std_smcount  assisting_adult widowed anybrevement phassles std_friends std_family std_marriage std_frndsupp std_famsupp std_msupport3 std_communityscale std_pkin std_pclose std_padvice std_pprox std_mfreq std_ploan std_pchores std_bridging std_efctsize std_diverse std_density std_netsize std_avg_euc_age std_weakest std_occcomplex_people std_diff_college std_diff_white std_numphonecontact std_pfriend sole std_sdage std_pcollege std_pwhite"'
+
+* Store output in a temporary dataset
+tempname results2
+postfile `results2' str30 predictor double coef se pval using temp_std_epmem.dta, replace
+
+* Loop through predictors
+foreach x of local predictors {
+    display "-------------------------------------------------------------"
+    display "Running model: std_epmem ~ `x'"
+    
+    capture noisily meglm std_epmem c.std_ageall female white college std_faq gds_h i.dummysource `x' || surveyid:
+
+    if _rc == 0 {
+        matrix b = e(b)
+        matrix V = e(V)
+
+        local colnames : colnames b
+        local found = 0
+
+        forvalues j = 1/`=colsof(b)' {
+            local colname = word("`colnames'", `j')
+            display "Checking: `x' in colname[`j'] = `colname'"
+            if strpos("`colname'", "`x'") > 0 {
+                local row = `j'
+                local found = 1
+                continue, break
+            }
+        }
+
+        if `found' {
+            scalar coef = b[1, `row']
+            scalar se   = sqrt(V[`row', `row'])
+            scalar t    = coef / se
+            scalar df   = e(df_r)
+            scalar p    = 2*(normal(-abs(_b[`x']/_se[`x'])))
+			
+			
+            post `results2' ("`x'") (coef) (se) (p)
+            display "Posted: `x'  coef=`=coef'  se=`=se'  p=`=p'"
+        }
+        else {
+            display as error "Predictor `x' NOT FOUND in e(b)"
+        }
+    }
+    else {
+        display as error "Model failed for `x' (return code `_rc')"
+    }
+}
+
+postclose `results2'
+
+* Load results and inspect
+use temp_std_epmem.dta, clear
+gen group = .
+local g1 "married parenthood working livealone grphouse anyvolunteer std_church_day std_famfriends_day std_smcount"
+local g2 "assisting_adult widowed anybrevement phassles"
+local g3 "std_friends std_family std_marriage std_frndsupp std_famsupp std_msupport3 std_communityscale std_pkin std_pclose std_padvice std_pprox std_mfreq std_ploan std_pchores"
+local g4 "std_bridging std_efctsize std_diverse std_density std_netsize std_avg_euc_age std_weakest std_occcomplex_people std_diff_college std_diff_white std_numphonecontact std_pfriend sole std_sdage std_pcollege std_pwhite"
+
+foreach var of local g1 {
+    replace group = 1 if predictor == "`var'"
+}
+foreach var of local g2 {
+    replace group = 2 if predictor == "`var'"
+}
+foreach var of local g3 {
+    replace group = 3 if predictor == "`var'"
+}
+foreach var of local g4 {
+    replace group = 4 if predictor == "`var'"
+}
+
+
+label define group 1 "Participation" 2 "Stressors" 3 "Bonding" 4 "Bridging"
+label values group group
+summ coef
+local xmax = r(max)
+	 
+twoway ///
+    (scatter pval coef if group==1, mcolor(blue) msymbol(X) msize(large) mlabel(predictor) mlabcolor(blue)) ///
+    (scatter pval coef if group==2, mcolor(magenta) msymbol(triangle) msize(small)  mlabel(predictor) mlabcolor(magenta)) ///
+    (scatter pval coef if group==3, mcolor(stc3) msymbol(square) msize(small)  mlabel(predictor) mlabcolor(stc3)) ///
+    (scatter pval coef if group==4, mcolor(orange) msymbol(circle) msize(small)  mlabel(predictor) mlabcolor(orange)), ///
+     xtitle("Somers' D ", size(small))   ///
+     ytitle("")  ///
+	 ///ytitle("P-values", size(medium))  ///
+     yscale(log reverse) ///
+     ylabel(1 0.1 0.01 0.001 0.0001, angle(0) nogrid notick) ///
+	 yline(0.05, lcolor(gs10) lpattern(shortdash)) ///
+     yline(0.005814, lcolor(gs10) lpattern(shortdash)) ///
+     xline(0, lcolor(gs10) lpattern(shortdash)) ///
+	 xlabel(-0.3(0.1)0.3, angle(0) nogrid notick) /// 
+	 text(0.06 `=`xmax'+0.25' "p = 0.05", size(small) color(gs3) placement(east)) ///
+     text(0.009 `=`xmax'+0.25' "FDR p = 0.005814", size(small) color(gs3) placement(east)) ///
+     xsize(5.5)   ///
+     plotregion(margin(0 30 2 8)) ///  
+	 graphregion(color(white) lstyle(none)) ///
+	 plotregion(color(white) lstyle(none)) ///
+     title("Episodic memory", size(small))  /// 
+     legend(off)   ///
+	 ///legend(order(1 "Participation" 2 "Stressors" 3 "Bonding" 4 "Bridging") row(1) size(small)) ///
+	 name(sp_episo, replace)  ///
+	 scheme(s1color)
+	 
+graph save "sp_episo.gph", replace
+graph export "sp_episo_scatterplot.png", as(png) name("sp_episo") replace
+graph close	 
+	 
+
+*--------------------------------------------------
+* Loop over outcomes and predictors, DV3- MoCA score
+*--------------------------------------------------
+* Load stacked SNAD + SNACK data
+use "snack_snad_merged_std_0720.dta", clear
+
+sum std_language std_epmem std_moca_raw MCI_rev
+set matsize 11000
+
+local predictors `"married parenthood working livealone grphouse anyvolunteer std_church_day std_famfriends_day std_smcount  assisting_adult widowed anybrevement phassles std_friends std_family std_marriage std_frndsupp std_famsupp std_msupport3 std_communityscale std_pkin std_pclose std_padvice std_pprox std_mfreq std_ploan std_pchores std_bridging std_efctsize std_diverse std_density std_netsize std_avg_euc_age std_weakest std_occcomplex_people std_diff_college std_diff_white std_numphonecontact std_pfriend sole std_sdage std_pcollege std_pwhite"'
+
+* Store output in a temporary dataset
+tempname results3
+postfile `results3' str30 predictor double coef se pval using temp_std_moca_raw.dta, replace
+
+* Loop through predictors
+foreach x of local predictors {
+    display "-------------------------------------------------------------"
+    display "Running model: std_moca_raw ~ `x'"
+    
+    capture noisily meglm std_moca_raw c.std_ageall female white college std_faq gds_h i.dummysource `x' || surveyid:
+
+    if _rc == 0 {
+        matrix b = e(b)
+        matrix V = e(V)
+
+        local colnames : colnames b
+        local found = 0
+
+        forvalues j = 1/`=colsof(b)' {
+            local colname = word("`colnames'", `j')
+            display "Checking: `x' in colname[`j'] = `colname'"
+            if strpos("`colname'", "`x'") > 0 {
+                local row = `j'
+                local found = 1
+                continue, break
+            }
+        }
+
+        if `found' {
+            scalar coef = b[1, `row']
+            scalar se   = sqrt(V[`row', `row'])
+            scalar t    = coef / se
+            scalar df   = e(df_r)
+            scalar p    = 2*(normal(-abs(_b[`x']/_se[`x'])))
+			
+			
+            post `results3' ("`x'") (coef) (se) (p)
+            display "Posted: `x'  coef=`=coef'  se=`=se'  p=`=p'"
+        }
+        else {
+            display as error "Predictor `x' NOT FOUND in e(b)"
+        }
+    }
+    else {
+        display as error "Model failed for `x' (return code `_rc')"
+    }
+}
+
+postclose `results3'
+
+* Load results and inspect
+use temp_std_moca_raw.dta, clear
+*list in 1/10
+
+gen group = .
+local g1 "married parenthood working livealone grphouse anyvolunteer std_church_day std_famfriends_day std_smcount"
+local g2 "assisting_adult widowed anybrevement phassles"
+local g3 "std_friends std_family std_marriage std_frndsupp std_famsupp std_msupport3 std_communityscale std_pkin std_pclose std_padvice std_pprox std_mfreq std_ploan std_pchores"
+local g4 "std_bridging std_efctsize std_diverse std_density std_netsize std_avg_euc_age std_weakest std_occcomplex_people std_diff_college std_diff_white std_numphonecontact std_pfriend sole std_sdage std_pcollege std_pwhite"
+
+foreach var of local g1 {
+    replace group = 1 if predictor == "`var'"
+}
+foreach var of local g2 {
+    replace group = 2 if predictor == "`var'"
+}
+foreach var of local g3 {
+    replace group = 3 if predictor == "`var'"
+}
+foreach var of local g4 {
+    replace group = 4 if predictor == "`var'"
+}
+
+
+label define group 1 "Participation" 2 "Stressors" 3 "Bonding" 4 "Bridging"
+label values group group
+summ coef
+local xmax = r(max)
+
+ 
+twoway ///
+    (scatter pval coef if group==1, mcolor(blue) msymbol(X) msize(large) mlabel(predictor) mlabcolor(blue)) ///
+    (scatter pval coef if group==2, mcolor(magenta) msymbol(triangle) msize(small)  mlabel(predictor) mlabcolor(magenta)) ///
+    (scatter pval coef if group==3, mcolor(stc3) msymbol(square) msize(small)  mlabel(predictor) mlabcolor(stc3)) ///
+    (scatter pval coef if group==4, mcolor(orange) msymbol(circle) msize(small)  mlabel(predictor) mlabcolor(orange)), ///
+     xtitle("Somers' D ", size(small))   ///
+     ytitle("")  ///
+	 ///ytitle("P-values", size(medium))  ///
+     yscale(log reverse) ///
+     ylabel(1 0.1 0.01 0.001 0.0001, angle(0) nogrid notick) ///
+	 yline(0.05, lcolor(gs10) lpattern(shortdash)) ///
+     yline(0.0046512, lcolor(gs10) lpattern(shortdash)) ///
+     xline(0, lcolor(gs10) lpattern(shortdash)) ///
+	 xlabel(-0.3(0.1)0.3, angle(0) nogrid notick) /// 
+	 text(0.06 `=`xmax'+0.2' "p = 0.05", size(small) color(gs3) placement(east)) ///
+     text(0.009 `=`xmax'+0.2' "FDR p = 0.0046512", size(small) color(gs3) placement(east)) ///
+     xsize(5.5)   ///
+     plotregion(margin(0 30 2 8)) ///  
+	 graphregion(color(white) lstyle(none)) ///
+	 plotregion(color(white) lstyle(none)) ///
+     title("MoCA", size(small))  /// 
+     legend(off)   ///
+	 ///legend(order(1 "Participation" 2 "Stressors" 3 "Bonding" 4 "Bridging") row(1) size(small)) ///
+	 name(sp_moca, replace)  ///
+	 scheme(s1color)
+	 
+graph save "moca.gph", replace
+graph export "C:\Users\windy\OneDrive - Indiana University\1_IU_Project\SNAD\4_Cog_Bri\correctiontest\sp_moca_scatterplot.png", as(png) name("sp_moca") replace
+graph close	 
+	 
+
+
+
+*--------------------------------------------------
+* Loop over outcomes and predictors, DV4- MCI——rev
+*--------------------------------------------------
+* Load stacked SNAD + SNACK data
+use "snack_snad_merged_std_0720.dta", clear
+
+sum std_language std_epmem std_moca_raw MCI_rev
+set matsize 11000
+
+local predictors `"married parenthood working livealone grphouse anyvolunteer std_church_day std_famfriends_day std_smcount  assisting_adult widowed anybrevement phassles std_friends std_family std_marriage std_frndsupp std_famsupp std_msupport3 std_communityscale std_pkin std_pclose std_padvice std_pprox std_mfreq std_ploan std_pchores std_bridging std_efctsize std_diverse std_density std_netsize std_avg_euc_age std_weakest std_occcomplex_people std_diff_college std_diff_white std_numphonecontact std_pfriend sole std_sdage std_pcollege std_pwhite"'
+
+* Store output in a temporary dataset
+tempname results4
+postfile `results4' str30 predictor double coef se pval using temp_MCI_rev.dta, replace
+
+* Loop through predictors
+foreach x of local predictors {
+    display "-------------------------------------------------------------"
+    display "Running model: MCI_rev ~ `x'"
+    
+    capture noisily meglm MCI_rev c.std_ageall female white college std_faq gds_h i.dummysource `x' || surveyid:
+
+    if _rc == 0 {
+        matrix b = e(b)
+        matrix V = e(V)
+
+        local colnames : colnames b
+        local found = 0
+
+        forvalues j = 1/`=colsof(b)' {
+            local colname = word("`colnames'", `j')
+            display "Checking: `x' in colname[`j'] = `colname'"
+            if strpos("`colname'", "`x'") > 0 {
+                local row = `j'
+                local found = 1
+                continue, break
+            }
+        }
+
+        if `found' {
+            scalar coef = b[1, `row']
+            scalar se   = sqrt(V[`row', `row'])
+            scalar t    = coef / se
+            scalar df   = e(df_r)
+            scalar p    = 2*(normal(-abs(_b[`x']/_se[`x'])))
+			
+			
+            post `results4' ("`x'") (coef) (se) (p)
+            display "Posted: `x'  coef=`=coef'  se=`=se'  p=`=p'"
+        }
+        else {
+            display as error "Predictor `x' NOT FOUND in e(b)"
+        }
+    }
+    else {
+        display as error "Model failed for `x' (return code `_rc')"
+    }
+}
+
+postclose `results4'
+
+* Load results and inspect
+use temp_MCI_rev.dta, clear
+*list in 1/10
+
+gen group = .
+local g1 "married parenthood working livealone grphouse anyvolunteer std_church_day std_famfriends_day std_smcount"
+local g2 "assisting_adult widowed anybrevement phassles"
+local g3 "std_friends std_family std_marriage std_frndsupp std_famsupp std_msupport3 std_communityscale std_pkin std_pclose std_padvice std_pprox std_mfreq std_ploan std_pchores"
+local g4 "std_bridging std_efctsize std_diverse std_density std_netsize std_avg_euc_age std_weakest std_occcomplex_people std_diff_college std_diff_white std_numphonecontact std_pfriend sole std_sdage std_pcollege std_pwhite"
+
+foreach var of local g1 {
+    replace group = 1 if predictor == "`var'"
+}
+foreach var of local g2 {
+    replace group = 2 if predictor == "`var'"
+}
+foreach var of local g3 {
+    replace group = 3 if predictor == "`var'"
+}
+foreach var of local g4 {
+    replace group = 4 if predictor == "`var'"
+}
+
+
+label define group 1 "Participation" 2 "Stressors" 3 "Bonding" 4 "Bridging"
+label values group group
+summ coef
+local xmax = r(max)
+	 
+twoway ///
+    (scatter pval coef if group==1, mcolor(blue) msymbol(X) msize(large) mlabel(predictor) mlabcolor(blue)) ///
+    (scatter pval coef if group==2, mcolor(magenta) msymbol(triangle) msize(small)  mlabel(predictor) mlabcolor(magenta)) ///
+    (scatter pval coef if group==3, mcolor(stc3) msymbol(square) msize(small)  mlabel(predictor) mlabcolor(stc3)) ///
+    (scatter pval coef if group==4, mcolor(orange) msymbol(circle) msize(small)  mlabel(predictor) mlabcolor(orange)), ///
+     xtitle("Somers' D ", size(small))   ///
+     ytitle("")  ///
+	 ///ytitle("P-values", size(medium))  ///
+     yscale(log reverse) ///
+     ylabel(1 0.1 0.01 0.001 0.0001, angle(0) nogrid notick) ///
+	 yline(0.05, lcolor(gs10) lpattern(shortdash)) ///
+     yline(0.0034884, lcolor(gs10) lpattern(shortdash)) ///
+     xline(0, lcolor(gs10) lpattern(shortdash)) ///
+	 xlabel(-0.3(0.1)0.3, angle(0) nogrid notick) /// 
+	 text(0.06 `=`xmax'+0.2' "p = 0.05", size(small) color(gs3) placement(east)) ///
+     text(0.009 `=`xmax'+0.2' "FDR p = 0.0034884", size(small) color(gs3) placement(east)) ///
+     xsize(5.5)   ///
+     plotregion(margin(0 20 2 8)) ///  
+	 graphregion(color(white) lstyle(none)) ///
+	 plotregion(color(white) lstyle(none)) ///
+     title("MCI vs. Normal", size(small))  /// 
+	 legend(order(1 "Participation" 2 "Stressors" 3 "Bonding" 4 "Bridging") row(1) size(small)) ///
+	 name(sp_MCI_rev, replace)  ///
+	 scheme(s1color)	
+	 
+	 
+graph save "MCI_rev.gph", replace
+graph export "C:\Users\windy\OneDrive - Indiana University\1_IU_Project\SNAD\4_Cog_Bri\correctiontest\sp_MCI_rev_scatterplot.png", as(png) name("sp_MCI_rev") replace
+graph close	 
+
+
+*** combine four graphs ***
+graph combine sp_language sp_episo sp_moca sp_MCI_rev, ///
+    ycommon xcommon  commonscheme ///
+    col(2) imargin(2 2 2 2) ///
+	iscale(0.7)  ///
+	graphregion(color(white) lstyle(none)) ///
+	plotregion(color(white) lstyle(none)) ///
+    title("P-values Across Cognitive Outcomes", size(small)) ///
+    note("FDR=Benjamini–Hochberg (BH) False Discovery Rate", size(tiny))
+	
+graph export combined_pvalues_0730.png, replace as(png) name("Graph") 
+graph close	
+
+
+
+
+
+
+
+
+
+
+
+
+	 
